@@ -1,0 +1,101 @@
+import nltk
+from nltk.classify import NaiveBayesClassifier
+from nltk.classify.util import accuracy
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
+import random
+import csv
+import re
+
+# Gerekli veri kümelerini indir
+nltk.download("punkt")
+nltk.download("stopwords")
+
+# Stop words listesi
+stop_words = set(stopwords.words('turkish'))
+
+# Fonksiyon: Özellikleri çıkarma (unigramlar ve bigramlar)
+def extract_features(words):
+    # Temizlik ve normalizasyon
+    words = [word.lower() for word in words if word.isalpha() and word.lower() not in stop_words]
+
+    # Unigram ve bigram özellikleri
+    features = {word: True for word in words}  # Unigramlar
+
+    bigram_features = list(nltk.bigrams(words))
+    for bigram in bigram_features:
+        features[f'bigram_{bigram[0]}_{bigram[1]}'] = True
+    
+    # Link varsa özellik olarak ekle
+    if any(re.match(r'https?://', word) for word in words):
+        features['contains_link'] = True
+    
+    # Olumlu ve olumsuz kelimeleri ekleyerek duygusal analiz yapma
+    positive_words = ['güzel', 'mükemmel', 'tavsiye ederim', 'çok iyi', 'çok memnun kaldım']
+    negative_words = ['korkunç', 'çok kötü', 'hiç memnun kalmadım', 'kötü']
+    for word in words:
+        if word in positive_words:
+            features[f'positive_word_{word}'] = True
+        elif word in negative_words:
+            features[f'negative_word_{word}'] = True
+    
+    # Sayısal ifadeleri ekleyerek fiyat, indirim vb. bilgileri analiz etme
+    for word in words:
+        if re.match(r'\₺\d+', word):
+            features['contains_price'] = True
+        elif re.match(r'\d+% off', word):
+            features['contains_discount'] = True
+    
+    return features
+
+# Ürün yorumlarını yükle (örnek olarak)
+product_reviews = [
+    ("Bu ürüne bayıldım! Herkese tavsiye ederim.", 'pos'),
+    ("Yeterince dayanıklı değil. Bir hafta sonra kırıldı.", 'neg'),
+    ("Teslimat çok hızlı ve ürün kesinlikle mükemmel.", 'pos'),
+    ("Korkunç müşteri hizmeti.. Bir daha asla bu üründen almayacağım", 'neg'),
+]
+
+# Ek yorumlar (örnek olarak)
+additional_reviews = [
+    ("Güzel hizmet, hızlı teslimat!", 'pos'),
+    ("Hayatımda deneyimlediğim en kötü alışveriş. Bu ürünü almayın.", 'neg'),
+]
+
+# Ek yorumları tokenle ve özelliklerini çıkar
+product_reviews = [(extract_features(word_tokenize(review)), label) for review, label in product_reviews]
+additional_reviews = [(extract_features(word_tokenize(review)), label) for review, label in additional_reviews]
+
+# Tüm veri kümelerini birleştir ve karıştır
+all_reviews = product_reviews + additional_reviews
+random.shuffle(all_reviews)
+
+# Veri kümesini eğitim ve test olarak ayır
+train_data = all_reviews[:int(len(all_reviews)*0.8)]
+test_data = all_reviews[int(len(all_reviews)*0.8):]
+
+# Naive Bayes sınıflayıcıyı eğit
+classifier = NaiveBayesClassifier.train(train_data)
+
+# Doğruluk skorunu hesapla ve ekrana yazdır
+accuracy_score = accuracy(classifier, test_data)
+print(f"Doğruluk Skoru: {accuracy_score}")
+
+# Yorumları sınıflandırmak için fonksiyon
+def classify_review(review):
+    features = extract_features(word_tokenize(review))
+    return classifier.classify(features)
+
+# test_data içindeki yorumları sınıflandır ve sonuçları CSV olarak kaydet
+classified_reviews = []
+for review, label in test_data:
+    print (review)
+    classified_reviews.append((review, classify_review(review)) )
+
+# Sonuçları CSV dosyasına yaz
+with open('classified_reviews.csv', mode='w', newline='', encoding='utf-8') as file:
+    writer = csv.writer(file)
+    writer.writerow(['Yorum', 'Etiket'])
+    writer.writerows(classified_reviews)
+
+print("Sonuçlar classified_reviews.csv dosyasına kaydedildi")
